@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Lathe G-Code Verifier</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+  :root{
+    --bg:#0a0d0b;
+    --panel:#121613;
+    --panel-2:#161b17;
+    --line:#232b25;
+    --line-soft:#1a201b;
+    --text:#c9d3ca;
+    --text-dim:#71807a;
+    --amber:#ffb020;
+    --amber-dim:#8a6420;
+    --phosphor:#39ff88;
+    --phosphor-dim:#1c7a44;
+    --danger:#ff4d4d;
+    --danger-dim:#7a2020;
+    --metal:#8a8f8c;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:'IBM Plex Mono',monospace;overflow:hidden;}
+  ::selection{background:var(--phosphor-dim);color:#fff;}
+
+  #app{display:flex;flex-direction:column;height:100vh;}
+
+  /* HEADER */
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;}
+  .brand{display:flex;align-items:baseline;gap:8px;}
+  .brand .mark{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;
+    color:var(--amber);letter-spacing:0.5px;}
+  .brand .sub{font-size:10px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;}
+  .hspace{flex:1;}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    font-family:inherit;font-size:11px;padding:7px 12px;border-radius:3px;cursor:pointer;
+    letter-spacing:0.5px;text-transform:uppercase;transition:border-color .15s,color .15s;}
+  .btn:hover{border-color:var(--phosphor-dim);color:#fff;}
+  .btn:active{transform:translateY(1px);}
+  .btn.primary{border-color:var(--phosphor-dim);color:var(--phosphor);}
+  .btn.primary:hover{background:var(--phosphor-dim);color:#03150a;}
+  .btn.warn{border-color:var(--amber-dim);color:var(--amber);}
+  .btn:disabled{opacity:0.35;cursor:not-allowed;}
+  select.btn{appearance:none;-webkit-appearance:none;}
+
+  /* MAIN LAYOUT */
+  main{flex:1;display:flex;min-height:0;}
+  .col{display:flex;flex-direction:column;min-height:0;}
+  .col-editor{width:38%;min-width:320px;border-right:1px solid var(--line);}
+  .col-sim{flex:1;}
+
+  .panel-title{font-size:10px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;
+    padding:9px 12px;border-bottom:1px solid var(--line-soft);background:var(--panel);flex-shrink:0;
+    display:flex;justify-content:space-between;align-items:center;}
+
+  /* EDITOR */
+  .editor-wrap{flex:1;display:flex;min-height:0;background:#0d100e;}
+  .gutter{width:44px;flex-shrink:0;background:var(--panel);text-align:right;padding:10px 8px 10px 0;
+    font-size:12.5px;line-height:20px;color:#3a453d;user-select:none;overflow:hidden;}
+  .gutter .active{color:var(--amber);font-weight:600;}
+  .gutter .err{color:var(--danger);}
+  #gcode{flex:1;background:transparent;border:none;outline:none;resize:none;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:20px;padding:10px 12px;
+    tab-size:4;white-space:pre;overflow:auto;}
+  #gcode:disabled{color:var(--text-dim);}
+
+  .status-bar{flex-shrink:0;border-top:1px solid var(--line-soft);background:var(--panel);
+    padding:8px 12px;font-size:11px;max-height:110px;overflow-y:auto;}
+  .status-row{display:flex;gap:8px;padding:2px 0;color:var(--text-dim);}
+  .status-row.error{color:var(--danger);}
+  .status-row.warn{color:var(--amber);}
+  .status-row .tag{flex-shrink:0;width:16px;text-align:center;}
+
+  /* SIM VIEW */
+  .sim-wrap{flex:1;position:relative;background:radial-gradient(ellipse at 50% 40%, #0e120f 0%, #090b09 100%);min-height:0;}
+  #canvas{width:100%;height:100%;display:block;}
+
+  /* DRO readout */
+  .dro{position:absolute;top:14px;left:14px;background:rgba(10,13,11,0.88);
+    border:1px solid var(--line);border-radius:4px;padding:12px 16px;backdrop-filter:blur(2px);}
+  .dro-row{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;}
+  .dro-row:last-child{margin-bottom:0;}
+  .dro-label{font-size:10px;color:var(--text-dim);letter-spacing:1px;width:14px;}
+  .dro-val{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;
+    color:var(--amber);text-shadow:0 0 10px rgba(255,176,32,0.35);letter-spacing:1px;
+    min-width:118px;text-align:right;}
+  .dro-unit{font-size:10px;color:var(--text-dim);}
+
+  .info{position:absolute;top:14px;right:14px;background:rgba(10,13,11,0.88);
+    border:1px solid var(--line);border-radius:4px;padding:10px 14px;font-size:11px;
+    color:var(--text-dim);min-width:150px;}
+  .info div{display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;}
+  .info div:last-child{margin-bottom:0;}
+  .info span.v{color:var(--text);}
+  .info span.v.warn{color:var(--danger);}
+
+  .legend{position:absolute;bottom:14px;left:14px;display:flex;gap:16px;font-size:10px;color:var(--text-dim);}
+  .legend .sw{display:inline-block;width:14px;height:2px;margin-right:5px;vertical-align:middle;}
+
+  /* TRANSPORT */
+  .transport{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:10px 16px;
+    background:var(--panel);border-top:1px solid var(--line);}
+  .transport .btn.icon{width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .progress-wrap{flex:1;display:flex;align-items:center;gap:10px;}
+  .progress-track{flex:1;height:5px;background:var(--line);border-radius:3px;position:relative;cursor:pointer;}
+  .progress-fill{height:100%;background:var(--phosphor-dim);border-radius:3px;position:relative;}
+  .progress-fill::after{content:'';position:absolute;right:-3px;top:-3px;width:11px;height:11px;
+    border-radius:50%;background:var(--phosphor);box-shadow:0 0 6px var(--phosphor);}
+  .progress-txt{font-size:11px;color:var(--text-dim);min-width:70px;text-align:right;}
+  .speed-wrap{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-dim);}
+  input[type=range]{width:80px;accent-color:var(--phosphor-dim);}
+
+  /* STOCK MODAL */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;
+    align-items:center;justify-content:center;z-index:50;}
+  .modal-backdrop.show{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px;width:320px;}
+  .modal h3{margin:0 0 16px;font-family:'Space Grotesk',sans-serif;font-size:14px;color:var(--amber);
+    letter-spacing:0.5px;text-transform:uppercase;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:10px;color:var(--text-dim);letter-spacing:1px;
+    text-transform:uppercase;margin-bottom:5px;}
+  .field input{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    font-family:inherit;font-size:13px;padding:7px 9px;border-radius:3px;}
+  .field-check{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+  .field-check input{width:auto;}
+  .field-check label{font-size:11px;color:var(--text);text-transform:none;letter-spacing:0;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-track{background:var(--panel);}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+  /* ---------- MOBILE / PORTRAIT ---------- */
+  @media (max-width: 860px){
+    html,body{overflow:auto;}
+    #app{height:100dvh;}
+    header{padding:8px 10px;gap:8px;flex-wrap:wrap;row-gap:6px;}
+    .brand .sub{display:none;}
+    .brand .mark{font-size:14px;}
+    header .btn, header select.btn{font-size:10px;padding:6px 9px;}
+    #demoSelect{order:5;flex:1 1 100%;}
+    .hspace{flex-basis:100%;height:0;order:4;}
+
+    main{flex-direction:column;overflow:visible;}
+    .col-editor{width:100%;min-width:0;height:34vh;min-height:200px;
+      border-right:none;border-bottom:1px solid var(--line);}
+    .col-sim{width:100%;min-height:46vh;}
+    .panel-title{font-size:9px;padding:6px 10px;}
+
+    #gcode{font-size:12px;line-height:18px;padding:8px 8px;}
+    .gutter{width:30px;font-size:11px;line-height:18px;padding:8px 5px 8px 0;}
+    .status-bar{max-height:64px;font-size:10px;padding:6px 8px;}
+
+    .sim-wrap{min-height:280px;}
+    .dro{top:6px;left:6px;padding:7px 9px;border-radius:3px;}
+    .dro-row{gap:6px;margin-bottom:2px;}
+    .dro-label{font-size:9px;width:11px;}
+    .dro-val{font-size:15px;min-width:76px;letter-spacing:0.5px;text-shadow:none;}
+    .dro-unit{font-size:8px;}
+
+    .info{top:6px;right:6px;padding:6px 8px;font-size:9px;min-width:96px;}
+    .info div{gap:8px;margin-bottom:1px;}
+
+    .legend{bottom:6px;left:6px;right:6px;font-size:8px;gap:8px;flex-wrap:wrap;}
+    .legend .sw{width:10px;margin-right:3px;}
+
+    .transport{padding:8px 10px;gap:8px;flex-wrap:wrap;}
+    .progress-wrap{order:3;flex-basis:100%;}
+    .speed-wrap{font-size:9px;gap:4px;}
+    .speed-wrap span{display:none;}
+    input[type=range]{width:60px;}
+    .transport .btn.icon{width:32px;height:32px;font-size:12px;}
+
+    .modal{width:88vw;max-width:320px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">
+      <span class="mark">◆ LATHE//SIM</span>
+      <span class="sub">2D G-Code Verifier</span>
+    </div>
+    <div class="hspace"></div>
+    <select id="demoSelect" class="btn">
+      <option value="">Load demo…</option>
+      <option value="step">Stepped shaft (G1)</option>
+      <option value="arc">Turn + radius (G2/G3)</option>
+      <option value="crash">Crash example (rapid into stock)</option>
+    </select>
+    <button class="btn" id="newBtn">New</button>
+    <button class="btn" id="stockBtn">Stock…</button>
+    <button class="btn primary" id="runBtn">▶ Run</button>
+  </header>
+
+  <main>
+    <div class="col col-editor">
+      <div class="panel-title">
+        <span>G-Code Editor</span>
+        <span id="lineCount">0 lines</span>
+      </div>
+      <div class="editor-wrap">
+        <div class="gutter" id="gutter"></div>
+        <textarea id="gcode" spellcheck="false" placeholder="; Write lathe G-code here
+; X = diameter, Z = length (mm), G90 absolute
+G21 G90
+G0 X30 Z2
+G1 X20 Z0 F0.2
+G1 Z-40
+"></textarea>
+      </div>
+      <div class="status-bar" id="statusBar">
+        <div class="status-row"><span class="tag">·</span><span>Ready. Load a demo or write G-code, then Run.</span></div>
+      </div>
+    </div>
+
+    <div class="col col-sim">
+      <div class="panel-title">
+        <span>Simulation — Stock ⌀<span id="stockDiaLbl">40</span> × <span id="stockLenLbl">80</span>mm</span>
+        <span id="modeLbl">DIAMETER MODE</span>
+      </div>
+      <div class="sim-wrap">
+        <canvas id="canvas"></canvas>
+        <div class="dro">
+          <div class="dro-row"><span class="dro-label">X</span><span class="dro-val" id="droX">0.000</span><span class="dro-unit">mm ⌀</span></div>
+          <div class="dro-row"><span class="dro-label">Z</span><span class="dro-val" id="droZ">0.000</span><span class="dro-unit">mm</span></div>
+        </div>
+        <div class="info">
+          <div><span>Line</span><span class="v" id="infoLine">–</span></div>
+          <div><span>Block</span><span class="v" id="infoBlock">0 / 0</span></div>
+          <div><span>Feed</span><span class="v" id="infoFeed">–</span></div>
+          <div><span>Motion</span><span class="v" id="infoMotion">–</span></div>
+          <div><span>Warnings</span><span class="v" id="infoWarn">0</span></div>
+        </div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--metal)"></span>Stock</span>
+          <span><span class="sw" style="background:var(--phosphor)"></span>Feed move</span>
+          <span><span class="sw" style="background:var(--amber);border-top:1px dashed var(--amber);height:0"></span>Rapid move</span>
+          <span><span class="sw" style="background:var(--danger)"></span>Collision</span>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="btn icon" id="resetBtn" title="Reset">⏮</button>
+        <button class="btn icon" id="stepBackBtn" title="Step back">◁</button>
+        <button class="btn icon" id="playBtn" title="Play/Pause">▶</button>
+        <button class="btn icon" id="stepBtn" title="Step">▷</button>
+        <div class="progress-wrap">
+          <div class="progress-track" id="progressTrack"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="progress-txt" id="progressTxt">0 / 0</div>
+        </div>
+        <div class="speed-wrap">
+          <span>SPEED</span>
+          <input type="range" id="speedSlider" min="1" max="10" value="5">
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="stockModal">
+  <div class="modal">
+    <h3>Stock Setup</h3>
+    <div class="field"><label>Diameter (mm)</label><input type="number" id="stockDia" value="40" step="1"></div>
+    <div class="field"><label>Length (mm)</label><input type="number" id="stockLen" value="80" step="1"></div>
+    <div class="field-check">
+      <input type="checkbox" id="diaMode" checked>
+      <label for="diaMode">Program X as diameter (uncheck for radius mode)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="stockCancel">Cancel</button>
+      <button class="btn primary" id="stockApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- DEMO PROGRAMS ----------
+  const DEMOS = {
+    step: `; Stepped shaft — two diameters + face
+; Stock: dia 40 x 80mm, X programmed as diameter
+G21 G90
+G0 X42 Z2
+G1 X0 Z2 F0.25        ; face
+G0 X42 Z2
+G1 X30 Z2 F0.2
+G1 Z-30
+G0 X42 Z-30
+G0 Z2
+G1 X20 Z2
+G1 Z-55
+G0 X42 Z-55
+G0 X0 Z2
+M30`,
+    arc: `; Turn diameter, blend with radius, chamfer
+G21 G90
+G0 X42 Z2
+G1 X0 Z2 F0.2         ; face
+G0 X42 Z2
+G1 X36 Z0
+G1 Z-20
+G2 X28 Z-24 R4         ; radius blend
+G1 Z-45
+G1 X34 Z-50            ; chamfer
+G1 Z-70
+G0 X42 Z-70
+G0 X0 Z2
+M30`,
+    crash: `; Example: rapid plunge into stock (should flag collision)
+G21 G90
+G0 X42 Z2
+G0 X10 Z-10             ; WARNING: rapid crosses into material
+G1 X10 Z-40 F0.2
+G0 X42 Z-40
+M30`
+  };
+
+  // ---------- STATE ----------
+  let stock = { dia: 40, len: 80, diaMode: true };
+  let blocks = [];         // parsed motion blocks
+  let boundary = [];       // radius per z-sample (index 0 = z=0 .. N = z=-len)
+  const SAMPLES = 600;
+  let toolpath = [];       // drawn segments (rebuilt on each recompute up to current step)
+  let curIndex = -1;       // index into blocks, last executed
+  let playing = false;
+  let playTimer = null;
+  let warnings = 0;
+  let pos = { x: 0, z: 0 }; // radius, z  (internal always radius)
+
+  const el = id => document.getElementById(id);
+  const canvas = el('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // ---------- PARSER ----------
+  function parseGCode(text){
+    const lines = text.split('\n');
+    const out = [];
+    let modal = { motion: null, abs: true, units: 'mm' };
+    let last = { x: null, z: null }; // last programmed radius/z (post-conversion, radius internal)
+    let errors = [];
+
+    lines.forEach((raw, idx) => {
+      const lineNum = idx + 1;
+      let line = raw.split(';')[0];
+      line = line.replace(/\(.*?\)/g, '');
+      line = line.trim();
+      if(!line) return;
+
+      const words = line.match(/[A-Za-z][-+]?[0-9]*\.?[0-9]+/g);
+      if(!words){ return; }
+
+      let g = null, x=null, z=null, i=null, k=null, r=null, f=null, m=null;
+      words.forEach(w=>{
+        const letter = w[0].toUpperCase();
+        const val = parseFloat(w.slice(1));
+        if(isNaN(val)) return;
+        if(letter==='G') g = val;
+        else if(letter==='X') x = val;
+        else if(letter==='Z') z = val;
+        else if(letter==='I') i = val;
+        else if(letter==='K') k = val;
+        else if(letter==='R') r = val;
+        else if(letter==='F') f = val;
+        else if(letter==='M') m = val;
+      });
+
+      if(g===20) modal.units = 'in';
+      if(g===21) modal.units = 'mm';
+      if(g===90) modal.abs = true;
+      if(g===91) modal.abs = false;
+      if(g===0||g===1||g===2||g===3) modal.motion = g;
+
+      if(m===30 || m===2) { out.push({lineNum, type:'end', raw:raw}); return; }
+
+      const isMotionLine = (g===0||g===1||g===2||g===3) || (g===null && (x!==null||z!==null) && modal.motion!==null);
+      if(!isMotionLine){
+        // non-motion line (units/mode/spindle/etc) — no-op for sim but keep for stepping/highlight
+        out.push({lineNum, type:'other', raw:raw});
+        return;
+      }
+
+      const unitMul = modal.units==='in' ? 25.4 : 1;
+      // resolve target in radius terms (internal), converting diameter->radius if needed
+      let targetXraw = x!==null ? x*unitMul : null;
+      let targetZraw = z!==null ? z*unitMul : null;
+
+      let newX, newZ;
+      if(modal.abs){
+        newX = targetXraw!==null ? targetXraw : last.xRaw;
+        newZ = targetZraw!==null ? targetZraw : last.z;
+      } else {
+        newX = targetXraw!==null ? (last.xRaw + targetXraw) : last.xRaw;
+        newZ = targetZraw!==null ? (last.z + targetZraw) : last.z;
+      }
+      if(newX===null || newX===undefined) newX = last.xRaw ?? stock.dia;
+      if(newZ===null || newZ===undefined) newZ = last.z ?? 0;
+
+      const startX = last.x ?? (stock.diaMode ? (last.xRaw ?? stock.dia)/2 : (last.xRaw ?? stock.dia));
+      const startZ = last.z ?? 0;
+
+      const endXradius = stock.diaMode ? newX/2 : newX;
+      const startXradius = stock.diaMode ? (last.xRaw ?? stock.dia)/2 : (last.xRaw ?? stock.dia);
+
+      const block = {
+        lineNum, raw, type:'move',
+        motion: g!==null && (g===0||g===1||g===2||g===3) ? g : modal.motion,
+        x0: (last.xRadius ?? stock.dia/2), z0: startZ,
+        x1: endXradius, z1: newZ,
+        i, k, r, f,
+        error: null
+      };
+      if(block.x1 < 0) { block.error = `Line ${lineNum}: X target negative (tool past centerline)`; errors.push(block.error); }
+      if(Math.abs(block.z1) > stock.len + 5){ /* soft warning only, not fatal */ }
+
+      out.push(block);
+      last.xRaw = newX;
+      last.z = newZ;
+      last.xRadius = endXradius;
+    });
+
+    return { blocks: out, errors };
+  }
+
+  // ---------- SIMULATION MATERIAL MODEL ----------
+  function resetBoundary(){
+    boundary = new Array(SAMPLES+1).fill(stock.dia/2);
+  }
+  function zToIndex(z){
+    // z ranges 0 (face) to -stock.len (chuck end)
+    const clamped = Math.max(-stock.len, Math.min(0, z));
+    const t = (-clamped) / stock.len; // 0..1
+    return Math.round(t * SAMPLES);
+  }
+  function applyCut(z0,x0,z1,x1){
+    // straight-line cut in (z,radius) space; carve boundary down to path (turning removes material outside path)
+    const i0 = zToIndex(z0), i1 = zToIndex(z1);
+    const lo = Math.min(i0,i1), hi = Math.max(i0,i1);
+    if(lo===hi){
+      if(x1 < boundary[lo]) boundary[lo] = Math.max(0,x1);
+      return;
+    }
+    for(let idx=lo; idx<=hi; idx++){
+      const t = (idx-lo)/(hi-lo);
+      const xAt = i0<=i1 ? (x0 + (x1-x0)*t) : (x1 + (x0-x1)*t);
+      if(xAt < boundary[idx]) boundary[idx] = Math.max(0, xAt);
+    }
+  }
+  function checkCollision(z0,x0,z1,x1){
+    // for rapid moves: does the straight path cross inside existing material (excluding pure retract)?
+    const steps = 12;
+    for(let s=0;s<=steps;s++){
+      const t = s/steps;
+      const z = z0 + (z1-z0)*t;
+      const x = x0 + (x1-x0)*t;
+      if(z <= 0.001 && z >= -stock.len-0.001){
+        const idx = zToIndex(z);
+        if(x < boundary[idx] - 0.05) return true;
+      }
+    }
+    return false;
+  }
+
+  function addArcSegments(block){
+    // expand G2/G3 into line segments using I/K or R, return array of {z0,x0,z1,x1}
+    const segs = [];
+    const z0=block.z0, x0=block.x0, z1=block.z1, x1=block.x1;
+    let cz, cx;
+    if(block.r!==undefined && block.r!==null && (block.i===null||block.i===undefined) && (block.k===null||block.k===undefined)){
+      // radius form — find center
+      const dz = z1-z0, dx = x1-x0;
+      const chord = Math.sqrt(dz*dz+dx*dx);
+      const rad = Math.abs(block.r);
+      const h = Math.sqrt(Math.max(0, rad*rad - (chord/2)*(chord/2)));
+      const mz = (z0+z1)/2, mx = (x0+x1)/2;
+      const pz = -dx/ (chord||1), px = dz/(chord||1);
+      const sign = (block.motion===2) ? -1 : 1;
+      const dir = (block.r>=0) ? sign : -sign;
+      cz = mz + dir*h*pz; cx = mx + dir*h*px;
+    } else {
+      cz = z0 + (block.k||0);
+      cx = x0 + (block.i||0);
+    }
+    const a0 = Math.atan2(x0-cx, z0-cz);
+    const a1 = Math.atan2(x1-cx, z1-cz);
+    let da = a1-a0;
+    const cw = block.motion===2;
+    if(cw && da>0) da -= 2*Math.PI;
+    if(!cw && da<0) da += 2*Math.PI;
+    const steps = Math.max(4, Math.ceil(Math.abs(da)/ (Math.PI/24)));
+    let pz=z0, px=x0;
+    for(let s=1;s<=steps;s++){
+      const a = a0 + da*(s/steps);
+      const r = Math.sqrt((z0-cz)*(z0-cz)+(x0-cx)*(x0-cx));
+      const nz = cz + r*Math.sin(a);
+      const nx = cx + r*Math.cos(a);
+      segs.push({z0:pz,x0:px,z1:nz,x1:nx});
+      pz=nz; px=nx;
+    }
+    return segs;
+  }
+
+  // ---------- BUILD / RUN ----------
+  function loadStatus(entries){
+    const bar = el('statusBar');
+    bar.innerHTML='';
+    entries.forEach(e=>{
+      const row = document.createElement('div');
+      row.className = 'status-row' + (e.type==='error'?' error':e.type==='warn'?' warn':'');
+      row.innerHTML = `<span class="tag">${e.type==='error'?'✕':e.type==='warn'?'!':'·'}</span><span>${e.msg}</span>`;
+      bar.appendChild(row);
+    });
+    if(entries.length===0){
+      bar.innerHTML = `<div class="status-row"><span class="tag">·</span><span>No issues found.</span></div>`;
+    }
+  }
+
+  function compile(){
+    const text = el('gcode').value;
+    const parsed = parseGCode(text);
+    blocks = parsed.blocks;
+    curIndex = -1;
+    warnings = 0;
+    resetBoundary();
+    toolpath = [];
+    pos = {x: stock.dia/2, z:0};
+
+    const statusEntries = parsed.errors.map(e=>({type:'error', msg:e}));
+    if(blocks.length===0) statusEntries.push({type:'warn', msg:'No motion blocks found.'});
+    loadStatus(statusEntries);
+    updateGutter();
+    updateProgress();
+    render();
+    updateReadouts(null);
+  }
+
+  function stepForward(){
+    if(curIndex >= blocks.length-1) { playing=false; updatePlayBtn(); return false; }
+    curIndex++;
+    const b = blocks[curIndex];
+    if(b.type==='move'){
+      const segs = (b.motion===2||b.motion===3) ? addArcSegments(b) : [{z0:b.z0,x0:b.x0,z1:b.z1,x1:b.x1}];
+      let collided = false;
+      segs.forEach(s=>{
+        if(b.motion===0){
+          if(checkCollision(s.z0,s.x0,s.z1,s.x1)) collided = true;
+        } else {
+          applyCut(s.z0,s.x0,s.z1,s.x1);
+        }
+        toolpath.push({...s, rapid: b.motion===0, collide: collided, lineNum: b.lineNum});
+      });
+      if(collided) warnings++;
+      pos = {x:b.x1, z:b.z1};
+    }
+    updateGutter();
+    updateProgress();
+    updateReadouts(b);
+    render();
+    return true;
+  }
+
+  function stepBack(){
+    if(curIndex < 0) return;
+    // rebuild from scratch up to curIndex-1 (simplest correct approach)
+    const target = curIndex - 1;
+    resetBoundary();
+    toolpath = [];
+    warnings = 0;
+    pos = {x: stock.dia/2, z:0};
+    curIndex = -1;
+    while(curIndex < target){
+      curIndex++;
+      const b = blocks[curIndex];
+      if(b.type==='move'){
+        const segs = (b.motion===2||b.motion===3) ? addArcSegments(b) : [{z0:b.z0,x0:b.x0,z1:b.z1,x1:b.x1}];
+        let collided=false;
+        segs.forEach(s=>{
+          if(b.motion===0){ if(checkCollision(s.z0,s.x0,s.z1,s.x1)) collided=true; }
+          else applyCut(s.z0,s.x0,s.z1,s.x1);
+          toolpath.push({...s, rapid:b.motion===0, collide:collided, lineNum:b.lineNum});
+        });
+        if(collided) warnings++;
+        pos = {x:b.x1, z:b.z1};
+      }
+    }
+    updateGutter();
+    updateProgress();
+    updateReadouts(blocks[curIndex] || null);
+    render();
+  }
+
+  function resetSim(){
+    playing=false; updatePlayBtn();
+    clearInterval(playTimer);
+    curIndex=-1; warnings=0;
+    resetBoundary();
+    toolpath=[];
+    pos = {x:stock.dia/2, z:0};
+    updateGutter(); updateProgress(); render(); updateReadouts(null);
+  }
+
+  // ---------- UI SYNC ----------
+  function updateGutter(){
+    const lines = el('gcode').value.split('\n');
+    el('lineCount').textContent = lines.length + ' lines';
+    const curLine = curIndex>=0 && blocks[curIndex] ? blocks[curIndex].lineNum : -1;
+    let html = '';
+    for(let i=1;i<=lines.length;i++){
+      html += `<div class="${i===curLine?'active':''}">${i}</div>`;
+    }
+    el('gutter').innerHTML = html;
+    if(curLine>0){
+      const gutter = el('gutter');
+      const activeEl = gutter.querySelector('.active');
+      if(activeEl) activeEl.scrollIntoView({block:'nearest'});
+    }
+  }
+  function updateProgress(){
+    const total = blocks.length;
+    const done = curIndex+1;
+    el('progressTxt').textContent = `${done} / ${total}`;
+    el('progressFill').style.width = total? (done/total*100)+'%' : '0%';
+    el('infoBlock').textContent = `${done} / ${total}`;
+  }
+  function updateReadouts(b){
+    const dispX = stock.diaMode ? pos.x*2 : pos.x;
+    el('droX').textContent = dispX.toFixed(3);
+    el('droZ').textContent = pos.z.toFixed(3);
+    el('infoLine').textContent = b ? b.lineNum : '–';
+    el('infoFeed').textContent = b && b.f ? b.f.toFixed(3) : (b && b.motion===0 ? 'RAPID' : '–');
+    el('infoMotion').textContent = b ? (b.type==='end' ? 'M30 END' : b.motion!==undefined ? 'G'+b.motion : '–') : '–';
+    el('infoWarn').textContent = warnings;
+    el('infoWarn').className = 'v' + (warnings>0?' warn':'');
+  }
+  function updatePlayBtn(){
+    el('playBtn').textContent = playing ? '⏸' : '▶';
+  }
+
+  // ---------- RENDER ----------
+  function resizeCanvas(){
+    const wrap = canvas.parentElement;
+    canvas.width = wrap.clientWidth * devicePixelRatio;
+    canvas.height = wrap.clientHeight * devicePixelRatio;
+    canvas.style.width = wrap.clientWidth+'px';
+    canvas.style.height = wrap.clientHeight+'px';
+    render();
+  }
+
+  function render(){
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+    if(stock.len<=0) return;
+
+    const padX = Math.max(28*devicePixelRatio, W*0.07);
+    const padTop = Math.max(64*devicePixelRatio, H*0.16);
+    const padBottom = Math.max(40*devicePixelRatio, H*0.12);
+    const availW = W - padX*2, availH = H - padTop - padBottom;
+    const maxRadius = Math.max(stock.dia/2, ...boundary) * 1.25;
+    const scaleZ = availW / stock.len;
+    const scaleX = (availH/2) / maxRadius;
+    const scale = Math.min(scaleZ, scaleX);
+
+    const cy = padTop + availH/2; // vertical center of the drawable band (leaves room for overlays)
+    const zPix = (z)=> W - padX - (-z)*scale; // z=0 -> right edge; z=-len -> left
+    const xPix = (radius)=> cy + radius*scale; // below centerline
+    const xPixNeg = (radius)=> cy - radius*scale; // above centerline
+
+    // centerline
+    ctx.strokeStyle = 'rgba(113,128,122,0.4)';
+    ctx.setLineDash([6*devicePixelRatio,6*devicePixelRatio]);
+    ctx.lineWidth = 1*devicePixelRatio;
+    ctx.beginPath();
+    ctx.moveTo(padX*0.3, cy); ctx.lineTo(W-padX*0.3, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // chuck hatch (left side)
+    const chuckX = zPix(-stock.len);
+    ctx.strokeStyle = 'rgba(255,176,32,0.5)';
+    ctx.lineWidth = 1.5*devicePixelRatio;
+    ctx.beginPath();
+    ctx.moveTo(chuckX, cy - maxRadius*scale - 10*devicePixelRatio);
+    ctx.lineTo(chuckX, cy + maxRadius*scale + 10*devicePixelRatio);
+    ctx.stroke();
+
+    // raw stock outline (ghost)
+    const stockTopY = cy - (stock.dia/2)*scale;
+    const stockBotY = cy + (stock.dia/2)*scale;
+    ctx.strokeStyle = 'rgba(138,143,140,0.35)';
+    ctx.lineWidth = 1*devicePixelRatio;
+    ctx.strokeRect(chuckX, stockTopY, zPix(0)-chuckX, stockBotY-stockTopY);
+
+    // material boundary (filled) — build path across samples, top half then mirror bottom
+    ctx.beginPath();
+    for(let idx=0; idx<=SAMPLES; idx++){
+      const z = -stock.len * (idx/SAMPLES);
+      const px = zPix(z);
+      const py = xPixNeg(boundary[idx]);
+      if(idx===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    for(let idx=SAMPLES; idx>=0; idx--){
+      const z = -stock.len * (idx/SAMPLES);
+      const px = zPix(z);
+      const py = xPix(boundary[idx]);
+      ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, stockTopY, 0, stockBotY);
+    grad.addColorStop(0, '#3a3f3c');
+    grad.addColorStop(0.5, '#5c625e');
+    grad.addColorStop(1, '#2a2e2c');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = '#9aa19c';
+    ctx.lineWidth = 1.3*devicePixelRatio;
+    ctx.stroke();
+
+    // toolpath
+    toolpath.forEach(seg=>{
+      const x0 = zPix(seg.z0), y0 = xPixNeg(seg.x0);
+      const x1 = zPix(seg.z1), y1 = xPixNeg(seg.x1);
+      ctx.beginPath();
+      ctx.moveTo(x0,y0); ctx.lineTo(x1,y1);
+      if(seg.collide){
+        ctx.strokeStyle = '#ff4d4d'; ctx.setLineDash([]);
+        ctx.lineWidth = 2.4*devicePixelRatio;
+      } else if(seg.rapid){
+        ctx.strokeStyle = 'rgba(255,176,32,0.85)'; ctx.setLineDash([5*devicePixelRatio,4*devicePixelRatio]);
+        ctx.lineWidth = 1.3*devicePixelRatio;
+      } else {
+        ctx.strokeStyle = 'rgba(57,255,136,0.9)'; ctx.setLineDash([]);
+        ctx.lineWidth = 1.6*devicePixelRatio;
+      }
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // tool marker at current pos
+    const tx = zPix(pos.z), ty = xPixNeg(pos.x);
+    ctx.fillStyle = '#ffb020';
+    ctx.beginPath();
+    ctx.moveTo(tx, ty-9*devicePixelRatio);
+    ctx.lineTo(tx-7*devicePixelRatio, ty+7*devicePixelRatio);
+    ctx.lineTo(tx+7*devicePixelRatio, ty+7*devicePixelRatio);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#0a0d0b'; ctx.lineWidth = 1*devicePixelRatio; ctx.stroke();
+
+    // Z axis labels
+    ctx.fillStyle = 'rgba(113,128,122,0.9)';
+    ctx.font = `${11*devicePixelRatio}px 'IBM Plex Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Z0 (face)', zPix(0), stockTopY - 14*devicePixelRatio);
+    ctx.fillText('CHUCK', chuckX, stockTopY - 14*devicePixelRatio);
+  }
+
+  // ---------- PLAYBACK ----------
+  function play(){
+    playing = true; updatePlayBtn();
+    const speed = parseInt(el('speedSlider').value);
+    const delay = 650 - speed*55;
+    clearInterval(playTimer);
+    playTimer = setInterval(()=>{
+      const cont = stepForward();
+      if(!cont){ clearInterval(playTimer); playing=false; updatePlayBtn(); }
+    }, Math.max(40,delay));
+  }
+  function pause(){
+    playing=false; updatePlayBtn(); clearInterval(playTimer);
+  }
+
+  // ---------- EVENTS ----------
+  el('gcode').addEventListener('input', ()=>{ updateGutter(); });
+  el('gcode').addEventListener('scroll', ()=>{ el('gutter').scrollTop = el('gcode').scrollTop; });
+
+  el('runBtn').addEventListener('click', ()=>{ compile(); play(); });
+  el('resetBtn').addEventListener('click', resetSim);
+  el('stepBtn').addEventListener('click', ()=>{ pause(); stepForward(); });
+  el('stepBackBtn').addEventListener('click', ()=>{ pause(); stepBack(); });
+  el('playBtn').addEventListener('click', ()=>{
+    if(blocks.length===0){ compile(); }
+    if(playing) pause(); else play();
+  });
+  el('speedSlider').addEventListener('input', ()=>{ if(playing) play(); });
+
+  el('newBtn').addEventListener('click', ()=>{
+    if(confirm('Clear the editor and start a new program?')){
+      el('gcode').value=''; compile();
+    }
+  });
+  el('demoSelect').addEventListener('change', (e)=>{
+    if(e.target.value){
+      el('gcode').value = DEMOS[e.target.value];
+      compile();
+      e.target.value='';
+    }
+  });
+
+  el('stockBtn').addEventListener('click', ()=>{
+    el('stockDia').value = stock.dia;
+    el('stockLen').value = stock.len;
+    el('diaMode').checked = stock.diaMode;
+    el('stockModal').classList.add('show');
+  });
+  el('stockCancel').addEventListener('click', ()=> el('stockModal').classList.remove('show'));
+  el('stockApply').addEventListener('click', ()=>{
+    stock.dia = parseFloat(el('stockDia').value)||40;
+    stock.len = parseFloat(el('stockLen').value)||80;
+    stock.diaMode = el('diaMode').checked;
+    el('stockDiaLbl').textContent = stock.dia;
+    el('stockLenLbl').textContent = stock.len;
+    el('modeLbl').textContent = stock.diaMode ? 'DIAMETER MODE' : 'RADIUS MODE';
+    el('stockModal').classList.remove('show');
+    compile();
+  });
+
+  window.addEventListener('resize', resizeCanvas);
+
+  // ---------- INIT ----------
+  el('gcode').value = DEMOS.step;
+  requestAnimationFrame(()=>{ resizeCanvas(); compile(); });
+
+})();
+</script>
+</body>
+</html>
